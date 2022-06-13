@@ -54,13 +54,13 @@ func txAddCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			err = state.Persist()
+			_, err = state.Persist() // flush the mempool transactions to disk
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
 
-			fmt.Println("TX successfully added to the ledger.")
+			fmt.Println("TX successfully persisted to the ledger.")
 		},
 	}
 

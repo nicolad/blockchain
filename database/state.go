@@ -2,17 +2,21 @@ package database
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type State struct {
 	Balances  map[Account]uint
 	txMempool []Tx
 
-	dbFile *os.File
+	dbFile          *os.File
+	latestBlockHash Hash
 }
 
 func NewStateFromDisk() (*State, error) {
@@ -38,7 +42,7 @@ func NewStateFromDisk() (*State, error) {
 
 	scanner := bufio.NewScanner(f)
 
-	state := &State{balances, make([]Tx, 0), f}
+	state := &State{balances, make([]Tx, 0), f, Snapshot{}}
 
 	for scanner.Scan() {
 		if err := scanner.Err(); err != nil {
@@ -53,6 +57,10 @@ func NewStateFromDisk() (*State, error) {
 		}
 	}
 
+	err = state.doSnapshot()
+	if err != nil {
+		return nil, err
+	}
 	return state, nil
 }
 
@@ -66,24 +74,20 @@ func (s *State) Add(tx Tx) error {
 	return nil
 }
 
-func (s *State) Persist() error {
-	mempool := make([]Tx, len(s.txMempool))
-	copy(mempool, s.txMempool)
+func (s *State) LatestSnapshot() Hash {
+	return s.latestBlockHash
+}
 
-	for i := 0; i < len(mempool); i++ {
-		txJson, err := json.Marshal(s.txMempool[i])
-		if err != nil {
-			return err
-		}
+func (s *State) Persist() (Hash, error) {
 
-		if _, err = s.dbFile.Write(append(txJson, '\n')); err != nil {
-			return err
-		}
-
-		s.txMempool = append(s.txMempool[:i], s.txMempool[i+1:]...)
+	block := NewBlock(s.latestBlockHash, uint64(time.Now().Unix()), s.txMempool)
+	blockHash, err := block.Hash()
+	if err != nil {
+		return Hash{}, err
 	}
+	blockFs := BlockFS{blockHash, block}
 
-	return nil
+	return s.snapshot, nil
 }
 
 func (s *State) Close() {
@@ -103,5 +107,19 @@ func (s *State) apply(tx Tx) error {
 	s.Balances[tx.From] -= tx.Value
 	s.Balances[tx.To] += tx.Value
 
+	return nil
+}
+
+func (s *State) doSnapshot() error {
+	// Re-read the whole file from the first byte
+	_, err := s.dbFile.Seek(0, 0)
+	if err != nil {
+		return err
+	}
+	txsData, err := ioutil.ReadAll(s.dbFile)
+	if err != nil {
+		return err
+	}
+	s.snapshot = sha256.Sum256(txsData)
 	return nil
 }
