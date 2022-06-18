@@ -17,7 +17,8 @@ type State struct {
 	latestBlockHash Hash
 }
 
-func NewStateFromDisk() (*State, error) {
+func NewStateFromDisk(dataDir string) (*State, error) {
+	err := initDataDirIfNotExists(dataDir)
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
